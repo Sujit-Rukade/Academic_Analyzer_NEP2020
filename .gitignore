@@ -2,3 +2,6 @@ venv/
 __pycache__/results.db
 node_modules/
 __pycache__/
+
+# Ignore the .env file if it contains sensitive information
+.env

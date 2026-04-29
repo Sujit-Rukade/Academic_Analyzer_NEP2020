@@ -1,4 +1,6 @@
 
+# from prompt_toolkit import prompt
+
 import streamlit as st
 import pandas as pd
 import tempfile
@@ -10,6 +12,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from result_parser import pdf_to_excel_wide
+from rag_ingest import ingest_data_to_vector_db
+from rag_agent import ask_rag_agent
 
 # Page configuration
 st.set_page_config(
@@ -319,6 +323,25 @@ def main():
                         # Read the converted Excel file
                         df = pd.read_excel(tmp_excel_path, engine='openpyxl')
                         
+#                         from rag_ingest import ingest_data_to_vector_db
+# from rag_agent import ask_rag_agent
+
+# # ... inside the "Convert PDF to Excel" button logic in app.py ...
+                        
+#                         # Read the converted Excel file
+#                         df = pd.read_excel(tmp_excel_path, engine='openpyxl')
+                        
+                        # Read JSON data for analysis
+                        with open(student_json_path, 'r', encoding='utf-8') as f:
+                            student_data = json.load(f)
+                        with open(subject_json_path, 'r', encoding='utf-8') as f:
+                            subject_data = json.load(f)
+                            
+                        # --- THE FIX: PASS THE DATAFRAME TO RAG ---
+                        st.session_state.uploaded_filename = uploaded_file.name
+                        ingest_data_to_vector_db(st.session_state.uploaded_filename, df)
+                        # ------------------------------------------
+                        
                         # Read JSON data for analysis
                         with open(student_json_path, 'r', encoding='utf-8') as f:
                             student_data = json.load(f)
@@ -622,6 +645,52 @@ def main():
                 
             else:
                 st.info("📊 No backlog data available for analysis.")
+                
+# --- ADD AI CHAT INTERFACE HERE ---
+        if st.session_state.show_analysis:
+            st.markdown("---")
+            st.markdown('<div class="section-header"><h2 class="section-title">🤖 AI Assistant</h2></div>', unsafe_allow_html=True)
+            
+            # Initialize chat history
+            if "messages" not in st.session_state:
+                
+                st.session_state.messages = []
+
+            # Display chat messages
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            # Chat Input Box
+            if prompt := st.chat_input("Ask about the results... (e.g., 'Which subject has the most backlogs?')"):
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # Add AI response
+                with st.chat_message("assistant"):
+                    with st.spinner("Analyzing student data..."):
+                        try:
+                            # Call LangGraph Agent
+                            # response = ask_rag_agent(prompt, st.session_state.uploaded_filename, st.session_state.converted_df)
+                            response = ask_rag_agent(prompt, st.session_state.uploaded_filename)
+                            st.markdown(response)
+                            
+                            # Only save to chat history if the call was successful
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+
+                        except Exception as e:
+                            # --- THIS CATCHES THE GOOGLE SERVER CRASHES ---
+                            error_msg = str(e)
+                            st.warning(error_msg)
+                            if "503" in error_msg:
+                                st.warning("⚠️ Google's AI servers are currently experiencing peak global traffic. Please wait 15 seconds and try again.")
+                            # elif "429" in error_msg:
+                            #     st.warning("⏳ We are analyzing data too quickly! Please wait 60 seconds for the speed limit to reset.")
+                            else:
+                                st.error("🚨 An unexpected error occurred. Please try asking a slightly different question.")
+                                print(f"Backend Error: {error_msg}") # Prints to your terminal so you can see what actually broke
 
 if __name__ == "__main__":
     main()

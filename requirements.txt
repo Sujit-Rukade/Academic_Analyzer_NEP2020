@@ -7,3 +7,10 @@ camelot-py[cv]
 fastapi
 uvicorn
 python-multipart
+chromadb
+langchain-google-genai
+langgraph
+pydantic
+python-dotenv
+sentence-transformers
+langchain-huggingface
