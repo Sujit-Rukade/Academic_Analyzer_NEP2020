@@ -339,7 +339,12 @@ def main():
                             
                         # --- THE FIX: PASS THE DATAFRAME TO RAG ---
                         st.session_state.uploaded_filename = uploaded_file.name
-                        ingest_data_to_vector_db(st.session_state.uploaded_filename, df)
+                        ingest_data_to_vector_db(
+                            st.session_state.uploaded_filename,
+                            df,
+                            student_backlog_data=student_data,
+                            subject_backlog_data=subject_data,
+                        )
                         # ------------------------------------------
                         
                         # Read JSON data for analysis
@@ -671,7 +676,15 @@ def main():
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing student data..."):
                         try:
-                            response = ask_rag_agent(prompt, st.session_state.uploaded_filename)
+                            conversion_context = {
+                                "subjectBacklogData": st.session_state.subject_backlog_data,
+                                "studentBacklogData": st.session_state.student_backlog_data,
+                            }
+                            response = ask_rag_agent(
+                                prompt,
+                                st.session_state.uploaded_filename,
+                                conversion_context,
+                            )
                             st.markdown(response)
                             
                             # Only save to chat history if the call was successful

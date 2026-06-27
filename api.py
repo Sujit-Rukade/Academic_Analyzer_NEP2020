@@ -8,9 +8,17 @@ import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from db import get_conversion, get_excel_blob, init_db, list_conversions, save_conversion
+from rag_agent import ask_rag_agent, is_rag_configured
+from rag_ingest import ingest_data_to_vector_db, is_file_indexed
 from result_parser import pdf_to_excel_wide
+
+
+class RagAskRequest(BaseModel):
+    fileId: str
+    question: str = Field(..., min_length=1, max_length=2000)
 
 app = FastAPI(title="NEP Result Analysis API")
 
@@ -44,12 +52,51 @@ def _json_safe_records(df):
     return safe_df.to_dict(orient="records")
 
 
+def _dataframe_from_conversion(conversion):
+    df_data = conversion["dataframe"]
+    if isinstance(df_data, dict) and "columns" in df_data:
+        return pd.DataFrame(df_data["rows"], columns=df_data["columns"])
+    return pd.DataFrame(df_data)
+
+
+def _index_conversion_for_rag(
+    file_id: str,
+    df=None,
+    student_backlog_data=None,
+    subject_backlog_data=None,
+    metrics=None,
+    top3=None,
+):
+    if df is None:
+        conversion = get_conversion(file_id)
+        if not conversion:
+            raise HTTPException(status_code=404, detail="Conversion not found.")
+        df = _dataframe_from_conversion(conversion)
+        student_backlog_data = conversion.get("studentBacklogData")
+        subject_backlog_data = conversion.get("subjectBacklogData")
+        metrics = conversion.get("metrics")
+        top3 = conversion.get("top3")
+
+    try:
+        ingest_data_to_vector_db(
+            file_id,
+            df,
+            student_backlog_data=student_backlog_data,
+            subject_backlog_data=subject_backlog_data,
+            metrics=metrics,
+            top3=top3,
+        )
+        return {"indexed": True, "alreadyIndexed": False, "error": None}
+    except Exception as exc:
+        return {"indexed": False, "alreadyIndexed": False, "error": str(exc)}
+
+
 init_db()
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "ragConfigured": is_rag_configured()}
 
 
 @app.post("/api/convert")
@@ -112,21 +159,33 @@ async def convert_pdf(file: UploadFile = File(...)):
                 cols = [c for c in ["Rank", "Name", "SEAT NO", "PRN", "SGPA"] if c in top_df.columns]
                 top3 = top_df[cols].to_dict(orient="records")
 
+        metrics = {
+            "totalStudents": len(df),
+            "coursesFound": len(unique_courses),
+            "totalBacklogs": total_backlogs,
+            "studentsWithBacklogs": students_with_backlogs,
+        }
+
+        rag_status = _index_conversion_for_rag(
+            file_id,
+            df,
+            student_backlog_data=student_data,
+            subject_backlog_data=subject_data,
+            metrics=metrics,
+            top3=top3,
+        )
+
         response_payload = {
             "fileId": file_id,
             "uploadedFilename": file.filename,
+            "ragStatus": rag_status,
             "dataframe": {
                 "columns": df.columns.tolist(),
                 "rows": _json_safe_records(df),
                 "previewRows": _json_safe_records(df.head(10)),
                 "totalRows": len(df),
             },
-            "metrics": {
-                "totalStudents": len(df),
-                "coursesFound": len(unique_courses),
-                "totalBacklogs": total_backlogs,
-                "studentsWithBacklogs": students_with_backlogs,
-            },
+            "metrics": metrics,
             "studentBacklogData": student_data,
             "subjectBacklogData": subject_data,
             "chartsData": {
@@ -179,4 +238,63 @@ def get_conversion_by_id(file_id: str):
     conversion = get_conversion(file_id)
     if not conversion:
         raise HTTPException(status_code=404, detail="Conversion not found.")
+    conversion["ragStatus"] = {
+        "indexed": is_file_indexed(file_id),
+        "configured": is_rag_configured(),
+    }
     return conversion
+
+
+@app.get("/api/rag/status/{file_id}")
+def rag_status(file_id: str):
+    conversion = get_conversion(file_id)
+    if not conversion:
+        raise HTTPException(status_code=404, detail="Conversion not found.")
+    return {
+        "fileId": file_id,
+        "indexed": is_file_indexed(file_id),
+        "configured": is_rag_configured(),
+    }
+
+
+@app.post("/api/rag/ingest/{file_id}")
+def rag_ingest(file_id: str):
+    return _index_conversion_for_rag(file_id)
+
+
+@app.post("/api/rag/ask")
+def rag_ask(body: RagAskRequest):
+    if not is_rag_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="AI advisor is not configured. Add GOOGLE_API_KEY to your .env file.",
+        )
+
+    conversion = get_conversion(body.fileId)
+    if not conversion:
+        raise HTTPException(status_code=404, detail="Conversion not found.")
+
+    if not is_file_indexed(body.fileId):
+        index_result = _index_conversion_for_rag(body.fileId)
+        if not index_result["indexed"]:
+            raise HTTPException(
+                status_code=500,
+                detail=index_result["error"] or "Failed to index result data for AI queries.",
+            )
+
+    try:
+        answer = ask_rag_agent(body.question.strip(), body.fileId, conversion)
+        return {"answer": answer, "fileId": body.fileId}
+    except Exception as exc:
+        error_msg = str(exc)
+        if "503" in error_msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Google AI servers are busy. Please wait 15 seconds and try again.",
+            ) from exc
+        if "429" in error_msg:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit reached. Please wait 60 seconds and try again.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=f"AI advisor error: {error_msg}") from exc

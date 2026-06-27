@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Plot from "react-plotly.js";
+import AiAdvisor from "./AiAdvisor";
 
 const API_BASE = "http://127.0.0.1:8000";
 const NEP_MAPPING_OPTIONS = [
@@ -297,6 +298,13 @@ function App() {
           Analysis
         </button>
         <button
+          className={`nav-btn ${activePage === "advisor" ? "nav-btn-active" : ""}`}
+          onClick={() => setActivePage("advisor")}
+          disabled={!hasData}
+        >
+          AI Advisor
+        </button>
+        <button
           className={`nav-btn ${activePage === "history" ? "nav-btn-active" : ""}`}
           onClick={() => setActivePage("history")}
         >
@@ -344,6 +352,9 @@ function App() {
                 </button>
                 <button className="btn-purple" onClick={() => setActivePage("analysis")}>
                   Analyze Results
+                </button>
+                <button className="btn-purple" onClick={() => setActivePage("advisor")}>
+                  Ask AI Advisor
                 </button>
                 <button className="btn-red" onClick={onReset}>
                   Process Another File
@@ -640,6 +651,22 @@ function App() {
                 </>
               )}
             </>
+          )}
+        </>
+      )}
+
+      {activePage === "advisor" && (
+        <>
+          {!hasData ? (
+            <div className="info-box">
+              No converted data found. Please upload and convert a PDF first.
+            </div>
+          ) : (
+            <AiAdvisor
+              fileId={convertedData.fileId}
+              fileName={convertedData.uploadedFilename}
+              apiBase={API_BASE}
+            />
           )}
         </>
       )}
