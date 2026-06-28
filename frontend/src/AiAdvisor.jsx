@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 
 const SUGGESTED_PROMPTS = [
   "Which subject has the most backlogs?",
-  "Who are the top 3 students by SGPA?",
+  "Give the subject-wise insights?",
   "List students with more than 2 backlogs",
   "Summarize overall class performance",
   "Which courses have zero backlogs?",

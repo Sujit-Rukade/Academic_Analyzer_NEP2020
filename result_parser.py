@@ -86,6 +86,7 @@ def get_subject_type(name, total, seen):
 
 def should_skip_line(line):
     upper = line.upper()
+    if "SGPA" in upper: return False
     if upper.startswith("COLLEGE") or "PUN CODE" in upper: return True
     if upper.startswith("PROGRAM") or "PROGRAM :" in upper: return True
     if "COURSE NAME" in upper and "ESE" in upper: return True
@@ -140,6 +141,8 @@ def pdf_to_excel_wide(pdf_path, excel_path,
     )
     sgpa_pattern = re.compile(r"SGPA\s*:\s*([\d.]+|-)")
 
+    active_seat_info = None
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             words = page.extract_words(keep_blank_chars=False)
@@ -161,8 +164,8 @@ def pdf_to_excel_wide(pdf_path, excel_path,
             
             # Find students and SGPAs to define blocks
             student_blocks = [] 
-            current_seat = None
-            current_top = None
+            current_seat = active_seat_info
+            current_top = 0 if current_seat else None
             
             for line in page_lines:
                 full_line_text = " ".join([w['text'] for w in line])
@@ -179,6 +182,9 @@ def pdf_to_excel_wide(pdf_path, excel_path,
                         })
                     current_seat = m_seat.groups()
                     current_top = line[0]['top']
+
+                    active_seat_info = current_seat 
+                    
                     continue
                     
                 if "SGPA" in full_line_text and current_seat:
@@ -191,6 +197,8 @@ def pdf_to_excel_wide(pdf_path, excel_path,
                     })
                     current_seat = None
                     current_top = None
+
+                    active_seat_info = None
 
             if current_seat:
                 student_blocks.append({
@@ -306,6 +314,9 @@ def pdf_to_excel_wide(pdf_path, excel_path,
 
                     tagged = f"{raw_name} ({typ})"
 
+                    if tagged not in backlog_by_subject:
+                        backlog_by_subject[tagged] = {"Count": 0, "Students": []}
+
                     # Manage repetitive courses
                     counts = student_records[seat]["_course_counts"]
                     key = f"{c_id}_{tagged}"
@@ -340,6 +351,7 @@ def pdf_to_excel_wide(pdf_path, excel_path,
                             bs["Backlogs"].append(tagged)
                             bs["Count"] += 1
 
+                        # --- 2. YOU CAN LEAVE THIS AS IS (It's now safely redundant) ---
                         if tagged not in backlog_by_subject:
                             backlog_by_subject[tagged] = {"Count": 0, "Students": []}
 

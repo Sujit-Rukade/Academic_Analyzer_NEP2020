@@ -135,6 +135,24 @@ def ingest_data_to_vector_db(
 
     delete_file_from_index(file_id)
 
+    leaderboard_text = "\n\n=== FULL CLASS LEADERBOARD / RANKINGS BY SGPA ===\n"
+    if 'SGPA' in df.columns and 'Name' in df.columns:
+        try:
+            rank_df = df[['SEAT NO', 'Name', 'SGPA']].copy()
+            rank_df['SGPA_num'] = pd.to_numeric(rank_df['SGPA'], errors='coerce')
+            rank_df = rank_df.dropna(subset=['SGPA_num']).sort_values(by='SGPA_num', ascending=False)
+            
+            rank = 1
+            prev_sgpa = None
+            for idx, (_, r_data) in enumerate(rank_df.iterrows()):
+                sgpa_val = r_data['SGPA_num']
+                if prev_sgpa is not None and sgpa_val < prev_sgpa:
+                    rank = idx + 1
+                prev_sgpa = sgpa_val
+                leaderboard_text += f"- Rank {rank}: {r_data['Name']} (Seat {r_data['SEAT NO']}, SGPA {r_data['SGPA']})\n"
+        except Exception:
+            leaderboard_text += "Full ranking data unavailable.\n"
+
     documents = []
     metadatas = []
     ids = []

@@ -21,6 +21,9 @@ _COURSE_QUESTION = re.compile(
 _STUDENT_QUESTION = re.compile(
     r"\b(student|students|learner|learners|classmate|classmates)\b", re.IGNORECASE
 )
+_RANK_QUESTION = re.compile(
+    r"\b(top|rank|ranks|ranking|leaderboard|topper|toppers|highest|best|first)\b", re.IGNORECASE
+)
 
 
 def is_rag_configured() -> bool:
@@ -116,6 +119,18 @@ def _retrieve_context(question: str, file_id: str):
         if student_results.get("documents"):
             for doc in student_results["documents"]:
                 doc_id = f"student_summary::{doc[:80]}"
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    chunks.insert(0, doc)
+
+    asks_about_ranks = bool(_RANK_QUESTION.search(question))
+    if asks_about_ranks:
+        rank_results = collection.get(
+            where={"$and": [{"file_id": file_id}, {"type": "metrics_summary"}]}
+        )
+        if rank_results.get("documents"):
+            for doc in rank_results["documents"]:
+                doc_id = f"metrics_summary::{doc[:80]}"
                 if doc_id not in seen:
                     seen.add(doc_id)
                     chunks.insert(0, doc)
