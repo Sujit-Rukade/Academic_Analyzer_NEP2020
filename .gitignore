@@ -9,3 +9,23 @@ __pycache__/
 .vscode/
 
 chroma_db/
+
+
+
+# Generated outputs
+results.db
+output_wide.xlsx
+student_backlogs.json
+subject_backlogs.json
+chroma_db/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+
+# SQLite
+*.sqlite3
